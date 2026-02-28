@@ -1,0 +1,79 @@
+# ======================================
+# Stock Risk Predictor — Docker Compose
+# Full-Stack Development Environment
+# ======================================
+
+version: '3.8'
+
+services:
+  # ── Frontend (React + Vite) ──────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: srp-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    depends_on:
+      - backend
+    networks:
+      - srp-network
+
+  # ── Backend (Python + FastAPI) ───────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: srp-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env.example
+    depends_on:
+      - db
+      - redis
+    networks:
+      - srp-network
+
+  # ── Database (PostgreSQL) ────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: srp-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: stockuser
+      POSTGRES_PASSWORD: stockpassword
+      POSTGRES_DB: stockrisk
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - srp-network
+
+  # ── Cache (Redis) ───────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: srp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - srp-network
+
+# ── Named Volumes ──────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+
+    # ── Network ────────────────────────────────────────
+networks:
+  srp-network:
+    driver: bridge
