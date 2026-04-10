@@ -75,6 +75,40 @@ docker compose up --build
 
 Then open `http://localhost:8787`.
 
+## Streamlit Deploy
+
+This repo is also prepared for Streamlit Community Cloud with:
+
+- `streamlit_app.py` as the entrypoint
+- `requirements.txt` for the Python runtime
+- `.streamlit/config.toml` for the dark theme
+
+To deploy on Streamlit Community Cloud:
+
+1. Push this project to GitHub.
+2. In Streamlit Community Cloud, create a new app from the repo.
+3. Set the main file path to `streamlit_app.py`.
+4. In app settings, add a secret named `NEWSDATA_API_KEY`.
+
+The Streamlit app fetches NSE data directly and uses the same risk and verdict logic as the web app.
+
+## Internet Deploy
+
+The fastest internet deployment path for this full-stack app is Render, because the project already ships as a single Dockerized web service.
+
+Files included for that path:
+
+- `Dockerfile`
+- `docker-compose.yml`
+- `render.yaml`
+
+To deploy on Render:
+
+1. Push the project to GitHub.
+2. In Render, create a new Blueprint or Web Service from the repo.
+3. If prompted for env vars, set `NEWSDATA_API_KEY`.
+4. Deploy the service and open the public URL Render gives you.
+
 ## CI/CD
 
 The GitHub Actions workflow at `.github/workflows/stock-risk-analyser.yml` does two things:
@@ -85,7 +119,7 @@ The GitHub Actions workflow at `.github/workflows/stock-risk-analyser.yml` does 
 The published image name is:
 
 ```text
-ghcr.io/<your-github-owner>/stock-risk-predictor
+ghcr.io/<your-github-owner>/stock-risk-analyser
 ```
 
 ## Notes

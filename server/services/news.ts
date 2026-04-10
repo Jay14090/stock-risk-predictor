@@ -45,6 +45,16 @@ const COMPANY_STOP_WORDS = new Set([
   'financial',
 ])
 
+const SEARCH_SUFFIX_STOP_WORDS = new Set([
+  'limited',
+  'ltd',
+  'inc',
+  'corp',
+  'corporation',
+  'company',
+  'co',
+])
+
 function normalize(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
 }
@@ -71,6 +81,31 @@ function buildCompanyTokens(symbol: string, companyName: string) {
       alias.length >= 2 && alias.length <= 6 ? alias : '',
       ...nameTokens,
     ].filter(Boolean)),
+  )
+}
+
+function buildSearchQueries(symbol: string, companyName: string) {
+  const cleanedName = normalize(companyName)
+    .split(' ')
+    .filter((token) => token.length > 1 && !SEARCH_SUFFIX_STOP_WORDS.has(token))
+    .join(' ')
+    .trim()
+
+  const compactName = cleanedName
+    .split(' ')
+    .slice(0, 2)
+    .join(' ')
+    .trim()
+
+  return Array.from(
+    new Set(
+      [
+        `${cleanedName} ${symbol} stock`,
+        `${compactName} ${symbol} stock`,
+        `${symbol} stock india`,
+        `${compactName} share price`,
+      ].filter((query) => query.trim().length > 0),
+    ),
   )
 }
 
@@ -138,72 +173,84 @@ export async function getNewsPulse(symbol: string, companyName: string): Promise
     }
   }
 
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    q: `${companyName} ${symbol} stock`,
-    language: 'en',
-    country: 'in',
-    size: '10',
-    category: 'business',
-  })
-
   try {
-    const response = await fetch(`https://newsdata.io/api/1/latest?${params.toString()}`, {
-      signal: AbortSignal.timeout(10000),
-    })
+    const queries = buildSearchQueries(symbol, companyName)
+    let selectedArticles: NewsArticle[] = []
+    let selectedQuery = ''
 
-    if (!response.ok) {
-      throw new Error(`NewsData.io request failed with status ${response.status}`)
-    }
-
-    const payload = newsDataResponseSchema.parse(await response.json())
-    const articles = payload.results
-      .map((article) => ({
-        article,
-        relevance: scoreRelevance(symbol, companyName, article),
-      }))
-      .filter(({ relevance }) => relevance.anchorMatched && relevance.score >= 5)
-      .sort((left, right) => right.relevance.score - left.relevance.score)
-      .slice(0, 6)
-      .map<NewsArticle>(({ article }) => {
-        const sentimentScore = scoreHeadlineSentiment(
-          `${article.title} ${article.description ?? ''}`,
-        )
-
-        return {
-          title: article.title,
-          source: article.source_name,
-          publishedAt: parsePublishedAt(article.pubDate, article.pubDateTZ),
-          url: article.link,
-          summary: article.description ?? 'No summary provided by the news source.',
-          sentimentScore,
-          sentimentLabel: sentimentLabelFromScore(sentimentScore),
-        }
+    for (const query of queries) {
+      const params = new URLSearchParams({
+        apikey: apiKey,
+        q: query,
+        language: 'en',
+        country: 'in',
+        size: '10',
+        category: 'business',
+      })
+      const response = await fetch(`https://newsdata.io/api/1/latest?${params.toString()}`, {
+        signal: AbortSignal.timeout(10000),
       })
 
+      if (!response.ok) {
+        throw new Error(`NewsData.io request failed with status ${response.status}`)
+      }
+
+      const payload = newsDataResponseSchema.parse(await response.json())
+      const filtered = payload.results
+        .map((article) => ({
+          article,
+          relevance: scoreRelevance(symbol, companyName, article),
+        }))
+        .filter(({ relevance }) => relevance.anchorMatched && relevance.score >= 5)
+        .sort((left, right) => right.relevance.score - left.relevance.score)
+        .slice(0, 6)
+        .map<NewsArticle>(({ article }) => {
+          const sentimentScore = scoreHeadlineSentiment(
+            `${article.title} ${article.description ?? ''}`,
+          )
+
+          return {
+            title: article.title,
+            source: article.source_name,
+            publishedAt: parsePublishedAt(article.pubDate, article.pubDateTZ),
+            url: article.link,
+            summary: article.description ?? 'No summary provided by the news source.',
+            sentimentScore,
+            sentimentLabel: sentimentLabelFromScore(sentimentScore),
+          }
+        })
+
+      if (filtered.length > 0) {
+        selectedArticles = filtered
+        selectedQuery = query
+        break
+      }
+    }
+
     const aggregateScore =
-      articles.length === 0
+      selectedArticles.length === 0
         ? 0
         : Number(
             (
-              articles.reduce((total, article) => total + article.sentimentScore, 0) /
-              articles.length
+              selectedArticles.reduce((total, article) => total + article.sentimentScore, 0) /
+              selectedArticles.length
             ).toFixed(2),
           )
 
     return {
       aggregate: {
         provider: 'NewsData.io',
-        coverageCount: articles.length,
+        coverageCount: selectedArticles.length,
         sentimentScore: aggregateScore,
         sentimentLabel: sentimentLabelFromScore(aggregateScore),
         keyThemes: extractThemes(
-          articles.map((article) => article.title),
+          selectedArticles.map((article) => article.title),
           symbol,
           companyName,
         ),
+        note: selectedQuery ? `Live query: ${selectedQuery}` : undefined,
       },
-      articles,
+      articles: selectedArticles,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown news provider error.'
